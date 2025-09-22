@@ -34,7 +34,7 @@ struct SearchRequest {
 #[derive(Clone)]
 struct AppState {
     pg_pool: deadpool_postgres::Pool,
-    http_client: reqwest::Client,                // 共享的 reqwest::Client
+    http_client: reqwest::Client,       // 共享的 reqwest::Client
     download_semaphore: Arc<Semaphore>, // 全局下载信号量
 }
 
@@ -75,7 +75,10 @@ async fn get_items_batch_pq(
     axum::Json(items)
 }
 
-async fn handle_post(axum::extract::State(state): axum::extract::State<Arc<AppState>>,axum::extract::Json(data): axum::extract::Json<ImageData>,) -> impl axum::response::IntoResponse {
+async fn handle_post(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    axum::extract::Json(data): axum::extract::Json<ImageData>,
+) -> impl axum::response::IntoResponse {
     let page_url = &data.page_url;
     let dir_path = std::path::Path::new("C:\\Users\\aa\\Desktop\\zup").join(&data.title);
 
@@ -144,14 +147,19 @@ async fn handle_post(axum::extract::State(state): axum::extract::State<Arc<AppSt
         }
     }
 
-    let _ = std::process::Command::new("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
-        .arg(dir_path.to_str().unwrap())
-        .output();
+    let _ =
+        std::process::Command::new("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+            .arg(dir_path.to_str().unwrap())
+            .output();
 
     format!("{}\n已完成！", &data.title)
 }
 
-async fn download_image(client: reqwest::Client, url: &str, path: &std::path::Path) -> Result<(), String> {
+async fn download_image(
+    client: reqwest::Client,
+    url: &str,
+    path: &std::path::Path,
+) -> Result<(), String> {
     let response = client.get(url).send().await.map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
@@ -175,7 +183,11 @@ async fn init_pool() -> deadpool_postgres::Pool {
     cfg.user = Some("postgres".to_string());
     cfg.password = Some("4545".to_string());
     cfg.dbname = Some("rarbg".to_string());
-    cfg.create_pool(Some(deadpool_postgres::Runtime::Tokio1), tokio_postgres::NoTls).unwrap()
+    cfg.create_pool(
+        Some(deadpool_postgres::Runtime::Tokio1),
+        tokio_postgres::NoTls,
+    )
+    .unwrap()
 }
 
 #[tokio::main]
@@ -192,39 +204,44 @@ async fn main() {
         download_semaphore: Arc::new(Semaphore::new(8)), // 全局8个并发许可
     });
     let app = axum::Router::new()
-    .route("/zup", axum::routing::post(handle_post))
-    .route("/rarbg/batch_pq", axum::routing::post(get_items_batch_pq))
-    .route("/download_poster/{product_number}/{video_poster}",
-        axum::routing::get(
-            |axum::extract::Path((pinfan, poster_url)): axum::extract::Path<(String, String)>| async move {
-                let cover_path =
-                    std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
-                match std::fs::exists(&cover_path) {
-                    Ok(true) => bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
-                    Ok(false) => {
-                        let bites = reqwest::get(poster_url)
+        .route("/zup", axum::routing::post(handle_post))
+        .route("/rarbg/batch_pq", axum::routing::post(get_items_batch_pq))
+        .route(
+            "/download_poster/{product_number}/{video_poster}",
+            axum::routing::get(
+                |axum::extract::Path((pinfan, poster_url)): axum::extract::Path<(
+                    String,
+                    String,
+                )>| async move {
+                    let cover_path =
+                        std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
+                    match std::fs::exists(&cover_path) {
+                        Ok(true) => bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
+                        Ok(false) => {
+                            let bites = reqwest::get(poster_url)
+                                .await
+                                .unwrap()
+                                .bytes()
+                                .await
+                                .unwrap();
+                            std::io::copy(
+                                &mut bites.as_ref(),
+                                &mut std::fs::File::create_new(&cover_path).unwrap(),
+                            )
+                            .unwrap();
+                            bites
+                        }
+                        Err(_) => reqwest::get(poster_url)
                             .await
                             .unwrap()
                             .bytes()
                             .await
-                            .unwrap();
-                        std::io::copy(
-                            &mut bites.as_ref(),
-                            &mut std::fs::File::create_new(&cover_path).unwrap(),
-                        )
-                        .unwrap();
-                        bites
+                            .unwrap(),
                     }
-                    Err(_) => reqwest::get(poster_url)
-                        .await
-                        .unwrap()
-                        .bytes()
-                        .await
-                        .unwrap(),
-                }
-            },
-        ),
-    ).with_state(app_state);
+                },
+            ),
+        )
+        .with_state(app_state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:31343")
         .await
         .unwrap();
