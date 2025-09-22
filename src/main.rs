@@ -1,10 +1,10 @@
-use axum::{Router, extract::Path, routing::get};
+// use axum::{Router, extract::Path, routing::get};
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route(
+    let app = axum::Router::new().route(
         "/download_poster/{product_number}/{video_poster}",
-        get(
-            |Path((pinfan, poster_url)): Path<(String, String)>| async move {
+        axum::routing::get(
+            |axum::extract::Path((pinfan, poster_url)): axum::extract::Path<(String, String)>| async move {
                 let cover_path =
                     std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
                 match std::fs::exists(&cover_path) {
