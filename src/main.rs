@@ -225,7 +225,7 @@ async fn main() {
             },
         ),
     ).with_state(app_state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3131")
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:31343")
         .await
         .unwrap();
     axum::serve(listener, app).await.unwrap();
