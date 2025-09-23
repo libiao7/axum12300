@@ -87,9 +87,19 @@ async fn handle_post(
     }
 
     let mut joinset = tokio::task::JoinSet::new();
-
+    let re = regex::Regex::new(
+        r"(?i:^https://image\.imx\.to/u/i/([0-9]{4}/[0-9]{2}/[0-9]{2}/.+\..{3,4})$)",
+    )
+    .unwrap();
     for (index, url) in data.img_url_array.iter().enumerate() {
-        let file_name = format!("{:04}.jpg", index + 1);
+        let file_name = match re.captures(url) {
+            Some(caps) => format!(
+                "{:04}_{}",
+                index + 1,
+                caps.get(1).unwrap().as_str().replace("/", "_")
+            ),
+            None => format!("{:04}.jpg", index + 1),
+        };
         let file_path = dir_path.join(&file_name);
         let url = url.clone();
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
@@ -201,7 +211,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         pg_pool,
         http_client,                                     // 共享的 reqwest::Client
-        download_semaphore: Arc::new(Semaphore::new(8)), // 全局8个并发许可
+        download_semaphore: Arc::new(Semaphore::new(6)), // 全局并发许可
     });
     let app = axum::Router::new()
         .route("/zup", axum::routing::post(handle_post))
