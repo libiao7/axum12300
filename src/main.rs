@@ -201,7 +201,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         pg_pool,
         http_client,                                     // 共享的 reqwest::Client
-        download_semaphore: Arc::new(Semaphore::new(8)), // 全局8个并发许可
+        download_semaphore: Arc::new(Semaphore::new(6)), // 全局6个并发许可
     });
     let app = axum::Router::new()
         .route("/zup", axum::routing::post(handle_post))
