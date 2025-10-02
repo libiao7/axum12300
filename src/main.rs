@@ -216,27 +216,37 @@ async fn main() {
                     let cover_path =
                         std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
                     match std::fs::exists(&cover_path) {
-                        Ok(true) => bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
+                        Ok(true) => (
+                            [(
+                                axum::http::header::CONTENT_TYPE,
+                                file_format::FileFormat::from_file(&cover_path)
+                                    .unwrap()
+                                    .media_type()
+                                    .to_string(),
+                            )],
+                            bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
+                        ),
                         Ok(false) => {
-                            let bites = reqwest::get(poster_url)
-                                .await
+                            let resp = reqwest::get(poster_url).await.unwrap();
+                            let web_content_type = resp.headers()[reqwest::header::CONTENT_TYPE]
+                                .to_str()
                                 .unwrap()
-                                .bytes()
-                                .await
-                                .unwrap();
+                                .to_string();
+                            let bites = resp.bytes().await.unwrap();
                             std::io::copy(
                                 &mut bites.as_ref(),
                                 &mut std::fs::File::create_new(&cover_path).unwrap(),
                             )
                             .unwrap();
-                            bites
+                            (
+                                [(axum::http::header::CONTENT_TYPE, web_content_type)],
+                                bites,
+                            )
                         }
-                        Err(_) => reqwest::get(poster_url)
-                            .await
-                            .unwrap()
-                            .bytes()
-                            .await
-                            .unwrap(),
+                        Err(_) => (
+                            [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
+                            bytes::Bytes::new(),
+                        ),
                     }
                 },
             ),
