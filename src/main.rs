@@ -251,6 +251,25 @@ async fn main() {
                 },
             ),
         )
+        .route(
+            "/open_with_potplayer/{video_url}/{browser_user_agent}",
+            axum::routing::get(|axum::extract::Path((v_url, ua)): axum::extract::Path<(
+                    String,
+                    String,
+                )>| async move {
+                let bat_path = "C:\\Users\\aa\\Desktop\\potplayer_with_user_agent.bat";
+                std::fs::write(
+                    bat_path,
+                    format!(
+                        "\"{}\" \"{}\" /user_agent=\"{}\"",
+                        "C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe", v_url, ua
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+                let _ = std::process::Command::new(bat_path).spawn();
+            }),
+        )
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:31343")
         .await
