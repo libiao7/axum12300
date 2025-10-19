@@ -227,17 +227,23 @@ async fn main() {
                             bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
                         ),
                         Ok(false) => {
-                            let resp = reqwest::get(poster_url).await.unwrap();
+                            let resp = reqwest::get(&poster_url).await.unwrap();
                             let web_content_type = resp.headers()[reqwest::header::CONTENT_TYPE]
                                 .to_str()
                                 .unwrap()
                                 .to_string();
+                            let web_content_length = resp.headers()[reqwest::header::CONTENT_LENGTH]
+                                .to_str()
+                                .unwrap()
+                                .to_string();
                             let bites = resp.bytes().await.unwrap();
-                            std::io::copy(
-                                &mut bites.as_ref(),
-                                &mut std::fs::File::create_new(&cover_path).unwrap(),
-                            )
-                            .unwrap();
+                            if !(web_content_length == "2732" && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")) {
+                                std::io::copy(
+                                    &mut bites.as_ref(),
+                                    &mut std::fs::File::create_new(&cover_path).unwrap(),
+                                )
+                                .unwrap();
+                            }
                             (
                                 [(axum::http::header::CONTENT_TYPE, web_content_type)],
                                 bites,
