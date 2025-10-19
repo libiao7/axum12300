@@ -237,7 +237,7 @@ async fn main() {
                                 .unwrap()
                                 .to_string();
                             let bites = resp.bytes().await.unwrap();
-                            if !(web_content_length == "2732" && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")) {
+                            if web_content_type.to_lowercase().starts_with("image/") && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")) {
                                 std::io::copy(
                                     &mut bites.as_ref(),
                                     &mut std::fs::File::create_new(&cover_path).unwrap(),
