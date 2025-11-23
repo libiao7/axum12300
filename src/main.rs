@@ -171,8 +171,9 @@ async fn download_image(
         return Err("Downloaded file is empty".to_string());
     }
 
-    let mut file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create_new(path).map_err(|e| e.to_string())?;
     std::io::copy(&mut content.as_ref(), &mut file).map_err(|e| e.to_string())?;
+    // std::fs::write(&path, content.as_ref()).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -207,16 +208,17 @@ async fn main() {
         .route("/zup", axum::routing::post(handle_post))
         .route("/rarbg/batch_pq", axum::routing::post(get_items_batch_pq))
         .route(
-            "/download_poster/{product_number}/{video_poster}",
+            "/download_poster/{override}/{product_number}/{video_poster}",
             axum::routing::get(
-                |axum::extract::Path((pinfan, poster_url)): axum::extract::Path<(
+                |axum::extract::Path((re_write,pinfan, poster_url)): axum::extract::Path<(
+                    bool,
                     String,
                     String,
                 )>| async move {
                     let cover_path =
                         std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
-                    match std::fs::exists(&cover_path) {
-                        Ok(true) => (
+                    match (std::fs::exists(&cover_path),re_write) {
+                        (Ok(true),false) => (
                             [(
                                 axum::http::header::CONTENT_TYPE,
                                 file_format::FileFormat::from_file(&cover_path)
@@ -226,30 +228,33 @@ async fn main() {
                             )],
                             bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
                         ),
-                        Ok(false) => {
+                        (Ok(_),_) => {
                             let resp = reqwest::get(&poster_url).await.unwrap();
-                            let web_content_type = resp.headers()[reqwest::header::CONTENT_TYPE]
+                            let web_content_type = resp.headers().get(reqwest::header::CONTENT_TYPE).expect(&poster_url)
                                 .to_str()
                                 .unwrap()
                                 .to_string();
-                            let web_content_length = resp.headers()[reqwest::header::CONTENT_LENGTH]
+                            let web_content_length = resp.headers().get(reqwest::header::CONTENT_LENGTH).expect(&poster_url)
                                 .to_str()
                                 .unwrap()
                                 .to_string();
                             let bites = resp.bytes().await.unwrap();
                             if web_content_type.to_lowercase().starts_with("image/") && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")) {
-                                std::io::copy(
-                                    &mut bites.as_ref(),
-                                    &mut std::fs::File::create_new(&cover_path).unwrap(),
-                                )
-                                .unwrap();
+                                // std::io::copy(
+                                //     &mut bites.as_ref(),
+                                //     &mut std::fs::File::create(&cover_path).unwrap(),
+                                // )
+                                // .unwrap();
+
+                                // std::fs::File::create(&cover_path).unwrap().write_all(bites.as_ref()).unwrap();
+                                std::fs::write(&cover_path,bites.as_ref()).unwrap();
                             }
                             (
                                 [(axum::http::header::CONTENT_TYPE, web_content_type)],
                                 bites,
                             )
                         }
-                        Err(_) => (
+                        _ => (
                             [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
                             bytes::Bytes::new(),
                         ),
