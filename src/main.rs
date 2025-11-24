@@ -228,7 +228,7 @@ async fn main() {
                             )],
                             bytes::Bytes::from(std::fs::read(&cover_path).unwrap()),
                         ),
-                        (Ok(_),_) => {
+                        (Ok(exists),_) => {
                             let resp = reqwest::get(&poster_url).await.unwrap();
                             let web_content_type = resp.headers().get(reqwest::header::CONTENT_TYPE).expect(&poster_url)
                                 .to_str()
@@ -239,7 +239,7 @@ async fn main() {
                                 .unwrap()
                                 .to_string();
                             let bites = resp.bytes().await.unwrap();
-                            if web_content_type.to_lowercase().starts_with("image/") && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")) {
+                            if web_content_type.to_lowercase().starts_with("image/") && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/"))&&!(exists&&(&poster_url).starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")&&std::fs::read(&cover_path).unwrap().len()==web_content_length.parse::<usize>().unwrap()) {
                                 // std::io::copy(
                                 //     &mut bites.as_ref(),
                                 //     &mut std::fs::File::create(&cover_path).unwrap(),
@@ -254,7 +254,7 @@ async fn main() {
                                 bites,
                             )
                         }
-                        _ => (
+                        (Err(_),_) => (
                             [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
                             bytes::Bytes::new(),
                         ),
