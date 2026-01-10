@@ -1,0 +1,16 @@
+[filter "lfs"]
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+[user]
+	name = libiao7
+	email = 31200418+libiao7@users.noreply.github.com
+[http]
+    proxy = socks5://127.0.0.1:10808
+[https]
+    proxy = socks5://127.0.0.1:10808
+[git]
+    proxy = socks5://127.0.0.1:10808
+[core]
+	autocrlf = false
