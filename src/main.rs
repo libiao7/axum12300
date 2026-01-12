@@ -51,11 +51,7 @@ struct DouYinDownloadReq {
     sec_uid: String, //网址 用于文件夹      MS4wLjABAAAA6Ks9K7OGdw7IlxnL1OlAAaGWnh9QIzmaPqQm985hNxU
     douyin_download_tasks: Vec<DouYinDownloadTask>,
     nickname: String,  //常变化的.昵称  用于aweme_json文件夹命名
-    user_json: String, //常变化的.昵称  用于aweme_json文件夹命名
-    aweme_avatar_url: String, //常变化的.昵称  用于aweme_json文件夹命名
-                       // author_user_id: u64,    //唯一id
-                       // douyin_account: String, //180天可以改一次,抖音号
-                       // douyin_user_page_html: String,
+    user_json: String, //__pace_f
 }
 
 async fn download_douyin_user_awemes(
@@ -65,7 +61,6 @@ async fn download_douyin_user_awemes(
     let sec_uid = &douyin_download_req.sec_uid;
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
-    let aweme_avatar_url = &douyin_download_req.aweme_avatar_url;
     let total_count = douyin_download_req.douyin_download_tasks.len();
     let dir_path = &std::path::Path::new("C:\\Users\\aa\\d-y").join(&sec_uid);
 
@@ -75,6 +70,10 @@ async fn download_douyin_user_awemes(
             .expect("Failed to create directory");
     }
 
+    let user_info_dir_path = &dir_path.join("user-info");
+    tokio::fs::create_dir_all(user_info_dir_path)
+        .await
+        .expect("Failed to create directory");
     let mut joinset = tokio::task::JoinSet::new();
 
     for douyin_download_task in douyin_download_req.douyin_download_tasks {
@@ -83,17 +82,70 @@ async fn download_douyin_user_awemes(
         let url = douyin_download_task.url;
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
         let task_client = state.http_client.clone();
+        let user_info_dir_path_clone = user_info_dir_path.clone();
+        let nickname_clone = nickname.clone();
         joinset.spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
 
             if file_path.exists() {
                 return Ok("existed");
             }
+            let response = match task_client
+                .get(&url)
+                .header("Referer", "https://www.douyin.com/")
+                .send()
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => return Err((e.to_string(), url)),
+            };
 
-            match download_image(&task_client, &url, &file_path, false).await {
-                Ok(_) => Ok("OK"),
-                Err(e) => Err((format!("e: {}: {}", e, url), url)),
+            if !response.status().is_success() {
+                return Err((
+                    format!("!response.status().is_success(): {}", response.status()),
+                    url,
+                ));
             }
+
+            let content = match response.bytes().await {
+                Ok(bytes) => bytes,
+                Err(e) => return Err((e.to_string(), url)),
+            };
+            if content.is_empty() {
+                return Err((format!("content.is_empty()"), url));
+            }
+            if douyin_download_task.file_name == "avatar.jpeg" {
+                let path1 = user_info_dir_path_clone.join(format!(
+                    "{}@{}.jpeg",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis(),
+                    sanitize_windows_filename_strict(&nickname_clone).unwrap()
+                ));
+                let path2 = user_info_dir_path_clone.join("avatar.jpeg");
+
+                if let Err(e) = tokio::fs::write(&path1, &content).await {
+                    return Err((e.to_string(), url));
+                }
+                if let Err(e) = tokio::fs::write(&path2, content).await {
+                    return Err((e.to_string(), url));
+                }
+            } else {
+                match tokio::fs::File::create_new(file_path).await {
+                    Ok(mut f) => {
+                        //must& f.write_all(&content)
+                        if let Err(e) = f.write_all(&content).await {
+                            return Err((e.to_string(), url));
+                        };
+                    }
+                    Err(e) => {
+                        return Err((e.to_string(), url));
+                    }
+                }
+            }
+
+            Ok("OK")
         });
     }
 
@@ -121,10 +173,6 @@ async fn download_douyin_user_awemes(
                 .await
                 .expect("Failed to delete failed_downloads.html");
         }
-        let user_info_dir_path = &dir_path.join("user-info");
-        tokio::fs::create_dir_all(user_info_dir_path)
-            .await
-            .expect("Failed to create directory");
         tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
             .await
             .unwrap();
@@ -141,28 +189,7 @@ async fn download_douyin_user_awemes(
         )
         .await
         .unwrap();
-
-        // 只请求一次
-        match state.http_client.get(aweme_avatar_url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(bites) = resp.bytes().await {
-                    let path1 = user_info_dir_path.join(format!(
-                        "{}@{}.jpeg",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis(),
-                        sanitize_windows_filename_strict(nickname).unwrap()
-                    ));
-                    let path2 = user_info_dir_path.join("avatar.jpeg");
-
-                    tokio::fs::write(path1, &bites).await.unwrap();
-                    tokio::fs::write(path2, &bites).await.unwrap();
-                    println!("{nickname} : 头像 完成");
-                }
-            }
-            _ => eprintln!("头像及副本下载失败"),
-        }
+        println!("{nickname} : user.json 完成");
     } else {
         let html_content = format!(
             r#"<html><body><h1><a href="https://www.douyin.com/user/{}">{}</a></h1><ul>{}</ul></body></html>"#,
@@ -271,7 +298,7 @@ async fn handle_post(
                 return Ok("existed");
             }
 
-            match download_image(&task_client, &url, &file_path, false).await {
+            match download_image(&task_client, &url, &file_path).await {
                 Ok(_) => Ok("OK"),
                 Err(e) => {
                     eprintln!("e: {}: {}", e, url);
@@ -332,7 +359,6 @@ async fn download_image(
     client: &reqwest::Client,
     url: &str,
     path: &std::path::Path,
-    re_write: bool,
 ) -> Result<(), String> {
     let mut request_builder = client.get(url);
     if let Ok(parsed_url) = reqwest::Url::parse(url) {
@@ -351,18 +377,12 @@ async fn download_image(
     if content.is_empty() {
         return Err("Downloaded file is empty".to_string());
     }
-    if re_write {
-        tokio::fs::write(path, content)
-            .await
-            .map_err(|e| e.to_string())?;
-    } else {
-        tokio::fs::File::create_new(path)
-            .await
-            .map_err(|e| e.to_string())?
-            .write_all(&content)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
+    tokio::fs::File::create_new(path)
+        .await
+        .map_err(|e| e.to_string())?
+        .write_all(&content)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
