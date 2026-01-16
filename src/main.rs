@@ -62,7 +62,8 @@ async fn download_douyin_user_awemes(
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
     let total_count = douyin_download_req.douyin_download_tasks.len();
-    let dir_path = &std::path::Path::new("C:\\Users\\aa\\d-y").join(&sec_uid);
+    let dir_path = &std::path::Path::new("C:\\Users\\aa\\d-y")
+        .join(sanitize_windows_filename_strict(&sec_uid).unwrap());
 
     if !dir_path.exists() {
         tokio::fs::create_dir_all(dir_path)
@@ -71,9 +72,11 @@ async fn download_douyin_user_awemes(
     }
 
     let user_info_dir_path = &dir_path.join("user-info");
-    tokio::fs::create_dir_all(user_info_dir_path)
-        .await
-        .expect("Failed to create directory");
+    if !(user_json.is_empty() || nickname.is_empty()) {
+        tokio::fs::create_dir_all(user_info_dir_path)
+            .await
+            .expect("Failed to create directory");
+    }
     let mut joinset = tokio::task::JoinSet::new();
 
     for douyin_download_task in douyin_download_req.douyin_download_tasks {
@@ -165,7 +168,14 @@ async fn download_douyin_user_awemes(
             Err(e) => eprintln!("Task panicked: {:?}", e),
         }
     }
-    println!("{nickname} : 作品下载已完成！");
+    println!(
+        "{} : 作品下载已完成！",
+        if nickname.is_empty() {
+            sec_uid
+        } else {
+            nickname
+        }
+    );
     if failed_urls.is_empty() {
         let failed_file_path = dir_path.join("failed_downloads.html");
         if failed_file_path.exists() {
@@ -173,28 +183,36 @@ async fn download_douyin_user_awemes(
                 .await
                 .expect("Failed to delete failed_downloads.html");
         }
-        tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
+        if !(user_json.is_empty() || nickname.is_empty()) {
+            tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
+                .await
+                .unwrap();
+            tokio::fs::write(
+                user_info_dir_path.join(format!(
+                    "{}@{}.json",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis(),
+                    sanitize_windows_filename_strict(nickname).unwrap()
+                )),
+                user_json,
+            )
             .await
             .unwrap();
-        tokio::fs::write(
-            user_info_dir_path.join(format!(
-                "{}@{}.json",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis(),
-                sanitize_windows_filename_strict(nickname).unwrap()
-            )),
-            user_json,
-        )
-        .await
-        .unwrap();
-        println!("{nickname} : user.json 完成");
+            println!("{nickname} : user.json 完成");
+        } else {
+            println!("user_json.is_empty() || nickname.is_empty()");
+        }
     } else {
         let html_content = format!(
             r#"<html><body><h1><a href="https://www.douyin.com/user/{}">{}</a></h1><ul>{}</ul></body></html>"#,
             sec_uid,
-            nickname,
+            if nickname.is_empty() {
+                "nickname.is_empty()"
+            } else {
+                nickname
+            },
             failed_urls
                 .iter()
                 .map(|url| format!("<li><a href=\"{}\">{}</a></li>", url, url))
@@ -211,7 +229,14 @@ async fn download_douyin_user_awemes(
         .spawn()
         .unwrap();
 
-    format!("{nickname} : 已完成！")
+    format!(
+        "{} : 已完成！",
+        if nickname.is_empty() {
+            "nickname.is_empty()"
+        } else {
+            nickname
+        }
+    )
 }
 
 fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
