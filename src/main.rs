@@ -85,12 +85,22 @@ async fn download_douyin_user_awemes(
         let url = douyin_download_task.url;
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
         let task_client = state.http_client.clone();
+        let task_pg_pool = state.pg_pool.clone();
         let user_info_dir_path_clone = user_info_dir_path.clone();
         let nickname_clone = nickname.clone();
         joinset.spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
-
-            if file_path.exists() {
+            let task_pg_connect=task_pg_pool.get().await.unwrap();
+            // if file_path.exists() {
+            if task_pg_connect
+                .query_opt(
+                    "SELECT 1 FROM douyin_download_history WHERE video_id = $1",
+                    &[&file_path.to_string_lossy()],
+                )
+                .await
+                .unwrap()
+                .is_some()
+            {
                 return Ok("existed");
             }
             let response = match task_client
@@ -135,12 +145,17 @@ async fn download_douyin_user_awemes(
                     return Err((e.to_string(), url));
                 }
             } else {
-                match tokio::fs::File::create_new(file_path).await {
+                match tokio::fs::File::create_new(&file_path).await {
                     Ok(mut f) => {
                         //must& f.write_all(&content)
                         if let Err(e) = f.write_all(&content).await {
                             return Err((e.to_string(), url));
                         };
+                        // 下载成功后，记得把这个标准 ID 存入数据库，防止下次重复
+                        task_pg_connect.execute(
+                            "INSERT INTO douyin_download_history (video_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                            &[&file_path.to_string_lossy()]
+                        ).await.unwrap();
                     }
                     Err(e) => {
                         return Err((e.to_string(), url));
@@ -428,6 +443,68 @@ async fn init_pool() -> deadpool_postgres::Pool {
 #[tokio::main]
 async fn main() {
     let pg_pool = init_pool().await;
+
+    // 执行建表语句
+    // 使用 TEXT PRIMARY KEY 确保无论文件名多长都能存入
+    pg_pool
+        .get()
+        .await
+        .unwrap()
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS douyin_download_history (
+            video_id TEXT PRIMARY KEY,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );",
+        )
+        .await
+        .unwrap();
+    sync_one_level_subfolders(&pg_pool, "C:\\Users\\aa\\d-y")
+        .await
+        .unwrap();
+    pub async fn sync_one_level_subfolders(
+        pool: &deadpool_postgres::Pool,
+        root_path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let pg_connect = pool.get().await?;
+        let mut all_filenames = Vec::new();
+
+        println!("正在扫描一级子文件夹: {} ...", root_path);
+
+        // .min_depth(2): 跳过根目录(1级)和子文件夹目录本身(1级)
+        // .max_depth(2): 限制只查到子文件夹内的文件(2级)
+        for entry in walkdir::WalkDir::new(root_path)
+            .min_depth(2)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            // 确保只处理文件
+            if entry.file_type().is_file() {
+                if let Some(full_path) = entry.path().to_str() {
+                    all_filenames.push(full_path.to_string());
+                }
+            }
+        }
+
+        if all_filenames.is_empty() {
+            println!("未发现符合层级要求的文件。");
+            return Ok(());
+        }
+
+        // 批量插入逻辑保持不变，依然高效
+        let stmt = "INSERT INTO douyin_download_history (video_id) 
+                SELECT * FROM UNNEST($1::text[]) 
+                ON CONFLICT (video_id) DO NOTHING";
+
+        let refs: Vec<&str> = all_filenames.iter().map(|s| s.as_str()).collect();
+        for chunk in refs.chunks(10000) {
+            pg_connect.execute(stmt, &[&chunk]).await?;
+        }
+
+        println!("✅ 成功同步 {} 个文件记录。", all_filenames.len());
+        Ok(())
+    }
+
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -513,6 +590,7 @@ async fn main() {
                 let _ = std::process::Command::new(r"C:\Program Files\VideoLAN\VLC\vlc.exe")
                 .arg(v_url)
                 .raw_arg(format!(r#":http-user-agent="{ua}""#))
+                .arg("--no-bluray-menu")
                 .spawn();
             }),
         )
