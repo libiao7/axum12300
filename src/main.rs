@@ -12,6 +12,7 @@ use tokio::sync::Semaphore;
 // use tokio_postgres::NoTls;
 // use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+// use std::env;
 
 #[derive(Debug, serde::Serialize)]
 struct Item {
@@ -38,6 +39,7 @@ struct AppState {
     pg_pool: deadpool_postgres::Pool,
     http_client: reqwest::Client,       // 共享的 reqwest::Client
     download_semaphore: Arc<Semaphore>, // 全局下载信号量
+    dy_path: std::path::PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -62,7 +64,8 @@ async fn download_douyin_user_awemes(
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
     let total_count = douyin_download_req.douyin_download_tasks.len();
-    let dir_path = &std::path::Path::new("C:\\Users\\aa\\d-y")
+    let dir_path = &state
+        .dy_path
         .join(sanitize_windows_filename_strict(&sec_uid).unwrap());
 
     if !dir_path.exists() {
@@ -458,17 +461,20 @@ async fn main() {
         )
         .await
         .unwrap();
-    sync_one_level_subfolders(&pg_pool, "C:\\Users\\aa\\d-y")
+    let user_ostr = &std::env::var_os("USERPROFILE").unwrap();
+    let dy_path = std::path::PathBuf::from(user_ostr).join("d-y");
+    tokio::fs::create_dir_all(&dy_path)
         .await
-        .unwrap();
+        .expect("Failed to create directory");
+    sync_one_level_subfolders(&pg_pool, &dy_path).await.unwrap();
     pub async fn sync_one_level_subfolders(
         pool: &deadpool_postgres::Pool,
-        root_path: &str,
+        root_path: &std::path::PathBuf,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let pg_connect = pool.get().await?;
         let mut all_filenames = Vec::new();
 
-        println!("正在扫描一级子文件夹: {} ...", root_path);
+        println!("正在扫描一级子文件夹: {:#?} ...", root_path);
 
         // .min_depth(2): 跳过根目录(1级)和子文件夹目录本身(1级)
         // .max_depth(2): 限制只查到子文件夹内的文件(2级)
@@ -514,6 +520,7 @@ async fn main() {
         pg_pool,
         http_client,                                     // 共享的 reqwest::Client
         download_semaphore: Arc::new(Semaphore::new(6)), // 全局6个并发许可
+        dy_path,
     });
     let app = axum::Router::new()
         .route("/zup", axum::routing::post(handle_post))
