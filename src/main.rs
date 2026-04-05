@@ -6,6 +6,7 @@
 // use std::io::copy;
 // use std::path::Path;
 // use std::process::Command;
+use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 // use tokio::task::JoinSet;
@@ -66,7 +67,7 @@ async fn download_douyin_user_awemes(
     let total_count = douyin_download_req.douyin_download_tasks.len();
     let dir_path = &state
         .dy_path
-        .join(sanitize_windows_filename_strict(&sec_uid).unwrap());
+        .join(sanitize_windows_filename_strict(&sec_uid).as_ref());
 
     if !dir_path.exists() {
         tokio::fs::create_dir_all(dir_path)
@@ -84,7 +85,7 @@ async fn download_douyin_user_awemes(
 
     for douyin_download_task in douyin_download_req.douyin_download_tasks {
         let file_path = dir_path
-            .join(sanitize_windows_filename_strict(&douyin_download_task.file_name).unwrap());
+            .join(sanitize_windows_filename_strict(&douyin_download_task.file_name).as_ref());
         let url = douyin_download_task.url;
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
         let task_client = state.http_client.clone();
@@ -137,7 +138,7 @@ async fn download_douyin_user_awemes(
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis(),
-                    sanitize_windows_filename_strict(&nickname_clone).unwrap()
+                    sanitize_windows_filename_strict(&nickname_clone)
                 ));
                 let path2 = user_info_dir_path_clone.join("avatar.jpeg");
 
@@ -212,7 +213,7 @@ async fn download_douyin_user_awemes(
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis(),
-                    sanitize_windows_filename_strict(nickname).unwrap()
+                    sanitize_windows_filename_strict(nickname)
                 )),
                 user_json,
             )
@@ -257,25 +258,88 @@ async fn download_douyin_user_awemes(
     )
 }
 
-fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
-    // 1. 替换非法字符
-    let sanitized: String = filename
-        .chars()
-        .map(|c| match c {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}' => '-',
-            _ => c,
-        })
-        .collect();
+// fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
+//     // 1. 替换非法字符
+//     let sanitized: String = filename
+//         .chars()
+//         .map(|c| match c {
+//             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}' => '-',
+//             _ => c,
+//         })
+//         .collect();
 
-    // 2. 去除末尾的空格和点
-    let trimmed = sanitized.trim_end_matches(|c| c == ' ' || c == '.');
+//     // 2. 去除末尾的空格和点
+//     let trimmed = sanitized.trim_end_matches(|c| c == ' ' || c == '.');
 
-    // 3. 如果结果为空（例如输入全是合法但被 trim 掉的字符），提供一个默认值
-    if trimmed.is_empty() {
-        return Err("empty now");
+//     // 3. 如果结果为空（例如输入全是合法但被 trim 掉的字符），提供一个默认值
+//     if trimmed.is_empty() {
+//         return Err("empty now");
+//     }
+//     Ok(trimmed.to_string())
+// }
+
+// fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
+//     // 预分配：filename.len() 是足额的字节上限
+//     let mut s = String::with_capacity(filename.len());
+
+//     // 1. 替换非法字符并推入
+//     for c in filename.chars() {
+//         match c {
+//             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}' => {
+//                 s.push('-')
+//             }
+//             _ => s.push(c),
+//         }
+//     }
+
+//     // 2. 原地截断末尾（处理 ".MP4." 变成 ".MP4"）
+//     let trimmed_len = s.trim_end_matches(|c| c == ' ' || c == '.').len();
+
+//     // 如果你还想去掉开头的空格，这里可以进一步处理逻辑
+//     // 但针对你问的末尾情况，truncate 是最快的
+//     s.truncate(trimmed_len);
+
+//     if s.is_empty() {
+//         return Err("empty now");
+//     }
+
+//     Ok(s) // 直接返回这个已经 truncate 好的 String，全过程仅 1 次分配
+// }
+
+// sanitize_windows_filename_cow
+fn sanitize_windows_filename_strict(filename: &str) -> Cow<str> {
+    // 定义非法字符检测逻辑
+    let is_illegal = |c: char| {
+        matches!(
+            c,
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}'
+        )
+    };
+
+    // 检查是否需要修改：是否有非法字符 OR 末尾是否有点或空格
+    // filename.ends_with([' ', '.']) 需要 Rust 1.58+
+    let needs_fix =
+        filename.chars().any(is_illegal) || filename.ends_with(|c| c == ' ' || c == '.');
+
+    if !needs_fix {
+        // 99% 的情况走这里：零内存分配，直接返回引用
+        Cow::Borrowed(filename)
+    } else {
+        // 1% 的情况走这里：只分配一次
+        let mut s = String::with_capacity(filename.len());
+        for c in filename.chars() {
+            if is_illegal(c) {
+                s.push('-');
+            } else {
+                s.push(c);
+            }
+        }
+        let trimmed_len = s.trim_end_matches(|c| c == ' ' || c == '.').len();
+        s.truncate(trimmed_len);
+        Cow::Owned(s)
     }
-    Ok(trimmed.to_string())
 }
+
 async fn get_items_batch_pq(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     axum::extract::Json(search_request): axum::extract::Json<SearchRequest>,
