@@ -576,7 +576,8 @@ async fn main() {
     }
 
     let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .read_timeout(std::time::Duration::from_secs(5))
         .build()
         .expect("Failed to create HTTP client");
 
@@ -592,8 +593,9 @@ async fn main() {
         .route("/rarbg/batch_pq", axum::routing::post(get_items_batch_pq))
         .route(
             "/download_poster/{override}/{product_number}/{video_poster}",
-            axum::routing::get(
-                |axum::extract::Path((re_write,pinfan, poster_url)): axum::extract::Path<(
+            axum::routing::get(|
+                    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+                    axum::extract::Path((re_write,pinfan, poster_url)): axum::extract::Path<(
                     bool,
                     String,
                     String,
@@ -612,17 +614,24 @@ async fn main() {
                             bytes::Bytes::from(tokio::fs::read(&cover_path).await.unwrap()),
                         ),
                         (Ok(existing),_) => {
-                            let resp = reqwest::get(&poster_url).await.unwrap();
+                            let mut request_builder = state.http_client.get(&poster_url);
+                            if let Ok(parsed_url) = reqwest::Url::parse(&poster_url) {
+                                if let Some(host) = parsed_url.host_str() {
+                                    request_builder =
+                                        request_builder.header("Referer", format!("{}://{}/", parsed_url.scheme(), host));
+                                }
+                            }
+                            let resp = request_builder.send().await.unwrap();
                             let web_content_type = resp.headers().get(reqwest::header::CONTENT_TYPE).expect(&poster_url)
                                 .to_str()
                                 .unwrap()
                                 .to_string();
-                            let web_content_length = resp.headers().get(reqwest::header::CONTENT_LENGTH).expect(&poster_url)
+                            let web_content_length = resp.headers().get(reqwest::header::CONTENT_LENGTH).unwrap_or(&reqwest::header::HeaderValue::from_static("0"))
                                 .to_str()
                                 .unwrap()
                                 .to_string();
-                            let bites = resp.bytes().await.unwrap();
-                            if web_content_type.to_lowercase().starts_with("image/") && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/"))&&!(existing&&(&poster_url).starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")&&tokio::fs::read(&cover_path).await.unwrap().len()==web_content_length.parse::<usize>().unwrap()) {
+                            let bites = resp.bytes().await.unwrap_or_default();
+                            if (web_content_type.to_lowercase().starts_with("image/")||bites.is_empty()) && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/"))&&!(existing&&(&poster_url).starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")&&tokio::fs::read(&cover_path).await.unwrap().len()==web_content_length.parse::<usize>().unwrap()) {
                                 tokio::fs::write(&cover_path,&bites).await.unwrap();
                             }
                             (
