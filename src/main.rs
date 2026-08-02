@@ -243,7 +243,7 @@ async fn download_douyin_user_awemes(
             .expect("Failed to write HTML file");
     }
 
-    std::process::Command::new("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+    std::process::Command::new(get_chrome_path().unwrap())
         .arg(dir_path.to_str().unwrap())
         .spawn()
         .unwrap();
@@ -307,7 +307,7 @@ async fn download_douyin_user_awemes(
 // }
 
 // sanitize_windows_filename_cow
-fn sanitize_windows_filename_strict(filename: &str) -> Cow<str> {
+fn sanitize_windows_filename_strict<'a>(filename: &'a str) -> Cow<'a, str> {
     // 定义非法字符检测逻辑
     let is_illegal = |c: char| {
         matches!(
@@ -340,6 +340,36 @@ fn sanitize_windows_filename_strict(filename: &str) -> Cow<str> {
     }
 }
 
+fn get_chrome_path() -> Option<std::path::PathBuf> {
+    // 优先尝试 User AppData
+    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+        let p = std::path::PathBuf::from(user_profile)
+            .join(r"AppData\Local\Google\Chrome\Application\chrome.exe");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // 备选尝试 Program Files
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let p =
+            std::path::PathBuf::from(program_files).join(r"Google\Chrome\Application\chrome.exe");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // 备选尝试 Program Files (x86)
+    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+        let p = std::path::PathBuf::from(program_files_x86)
+            .join(r"Google\Chrome\Application\chrome.exe");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    None
+}
 async fn get_items_batch_pq(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     axum::extract::Json(search_request): axum::extract::Json<SearchRequest>,
@@ -454,7 +484,7 @@ async fn handle_post(
         }
     }
 
-    std::process::Command::new("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+    std::process::Command::new(get_chrome_path().unwrap())
         .arg(dir_path.to_str().unwrap())
         .spawn()
         .unwrap();
