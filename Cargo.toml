@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.47.1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json"] }
-axum = "0.8.4"
-bytes = "1"
-serde = { version = "1.0", features = ["derive"] }
-deadpool-postgres = "0.10"
-tokio-postgres = "0.7"
-file-format = "0.28.0"
+tokio = { version = "1.53.1", features = ["full"] }
+reqwest = { version = "0.13.5", features = ["json"] }
+axum = "0.8.9"
+bytes = "1.12.1"
+serde = { version = "1.0.229", features = ["derive"] }
+deadpool-postgres = "0.14.2"
+tokio-postgres = "0.7.18"
+file-format = "0.29.0"
 walkdir = "2.5.0"
