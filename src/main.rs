@@ -55,6 +55,7 @@ struct DouYinDownloadReq {
     douyin_download_tasks: Vec<DouYinDownloadTask>,
     nickname: String,  //常变化的.昵称  用于aweme_json文件夹命名
     user_json: String, //__pace_f
+    page_url: String,  //发起请求的网页
 }
 
 async fn download_douyin_user_awemes(
@@ -64,6 +65,7 @@ async fn download_douyin_user_awemes(
     let sec_uid = &douyin_download_req.sec_uid;
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
+    let page_url = &douyin_download_req.page_url;
     let total_count = douyin_download_req.douyin_download_tasks.len();
     let dir_path = &state
         .dy_path
@@ -225,10 +227,10 @@ async fn download_douyin_user_awemes(
         }
     } else {
         let html_content = format!(
-            r#"<html><body><h1><a href="https://www.douyin.com/user/{}">{}</a></h1><ul>{}</ul></body></html>"#,
-            sec_uid,
+            r#"<html><body><h1><a href={}>{}</a></h1><ul>{}</ul></body></html>"#,
+            page_url,
             if nickname.is_empty() {
-                "nickname.is_empty()"
+                sec_uid
             } else {
                 nickname
             },
