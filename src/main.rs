@@ -27,7 +27,7 @@ struct Item {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct ImageData {
     title: String,
-    img_url_array: Vec<String>,
+    img_url_array: Vec<(String, String)>,
     page_url: String,
 }
 
@@ -422,8 +422,8 @@ async fn handle_post(
 
     let mut joinset = tokio::task::JoinSet::new();
 
-    for (index, url) in data.img_url_array.iter().enumerate() {
-        let file_name = format!("{:04}.jpg", index + 1);
+    for (_, (url, file_name)) in data.img_url_array.iter().enumerate() {
+        // let file_name = format!("{:04}.jpg", index + 1);
         let file_path = dir_path.join(&file_name);
         let url = url.clone();
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
