@@ -41,21 +41,27 @@ struct AppState {
     http_client: reqwest::Client,       // 共享的 reqwest::Client
     download_semaphore: Arc<Semaphore>, // 全局下载信号量
     dy_path: std::path::PathBuf,
+    posters_downloaded: std::path::PathBuf,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+// #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Deserialize)]
 struct DouYinDownloadTask {
     url: String,
     file_name: String,
+    is_cover: bool,
+    array_index: u16,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+// #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Deserialize)]
 struct DouYinDownloadReq {
     sec_uid: String, //网址 用于文件夹      MS4wLjABAAAA6Ks9K7OGdw7IlxnL1OlAAaGWnh9QIzmaPqQm985hNxU
     douyin_download_tasks: Vec<DouYinDownloadTask>,
     nickname: String,  //常变化的.昵称  用于aweme_json文件夹命名
     user_json: String, //__pace_f
     page_url: String,  //发起请求的网页
+                       // page_host: String, //发起请求的网页location.hostname
 }
 
 async fn download_douyin_user_awemes(
@@ -66,23 +72,32 @@ async fn download_douyin_user_awemes(
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
     let page_url = &douyin_download_req.page_url;
+    // let page_host = &douyin_download_req.page_host;
     let total_count = douyin_download_req.douyin_download_tasks.len();
-    let dir_path = &state
-        .dy_path
-        .join(sanitize_windows_filename_strict(&sec_uid).as_ref());
-
+    // let host_sec_uid = format!("{page_host}-{sec_uid}");
+    let sanitize_sec_uid = sanitize_windows_filename_strict(&sec_uid);
+    let dir_path = &state.dy_path.join(sanitize_sec_uid.as_ref());
     if !dir_path.exists() {
         tokio::fs::create_dir_all(dir_path)
             .await
             .expect("Failed to create directory");
     }
 
-    let user_info_dir_path = &dir_path.join("user-info");
-    if !(user_json.is_empty() || nickname.is_empty()) {
-        tokio::fs::create_dir_all(user_info_dir_path)
-            .await
-            .expect("Failed to create directory");
-    }
+    // let page_host = reqwest::Url::parse(page_url)
+    //     .unwrap()
+    //     .host_str()
+    //     .unwrap()
+    //     .to_string();
+
+    // let user_info_dir_path = &dir_path.join("user-info");
+    // if !(user_json.is_empty() || nickname.is_empty()) {
+    //     tokio::fs::create_dir_all(user_info_dir_path)
+    //         .await
+    //         .expect("Failed to create directory");
+    // }
+    let cover_path = state.dy_path.join(format!("{}.jpg", sanitize_sec_uid));
+    let json_path = state.dy_path.join(format!("{}.json", sanitize_sec_uid));
+
     let mut joinset = tokio::task::JoinSet::new();
 
     for douyin_download_task in douyin_download_req.douyin_download_tasks {
@@ -92,8 +107,11 @@ async fn download_douyin_user_awemes(
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
         let task_client = state.http_client.clone();
         let task_pg_pool = state.pg_pool.clone();
-        let user_info_dir_path_clone = user_info_dir_path.clone();
-        let nickname_clone = nickname.clone();
+        // let user_info_dir_path_clone = user_info_dir_path.clone();
+        let cover_path_clone = cover_path.clone();
+        // let json_path_clone = json_path.clone();
+        // let nickname_clone = nickname.clone();
+        let page_url_clone = page_url.clone();
         joinset.spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
             let task_pg_connect=task_pg_pool.get().await.unwrap();
@@ -111,7 +129,7 @@ async fn download_douyin_user_awemes(
             }
             let response = match task_client
                 .get(&url)
-                .header("Referer", "https://www.douyin.com/")
+                .header("Referer", page_url_clone)
                 .send()
                 .await
             {
@@ -133,24 +151,95 @@ async fn download_douyin_user_awemes(
             if content.is_empty() {
                 return Err((format!("content.is_empty()"), url));
             }
-            if douyin_download_task.file_name == "avatar.jpeg" {
-                let path1 = user_info_dir_path_clone.join(format!(
-                    "{}@{}.jpeg",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis(),
-                    sanitize_windows_filename_strict(&nickname_clone)
-                ));
-                let path2 = user_info_dir_path_clone.join("avatar.jpeg");
+            if douyin_download_task.is_cover {
+                // let path1 = user_info_dir_path_clone.join(format!(
+                //     "{}@{}.jpeg",
+                //     std::time::SystemTime::now()
+                //         .duration_since(std::time::UNIX_EPOCH)
+                //         .unwrap()
+                //         .as_millis(),
+                //     sanitize_windows_filename_strict(&nickname_clone)
+                // ));
+                // let path2 = user_info_dir_path_clone.join("avatar.jpeg");
 
-                if let Err(e) = tokio::fs::write(&path1, &content).await {
-                    return Err((e.to_string(), url));
+                // if let Err(e) = tokio::fs::write(&path1, &content).await {
+                //     return Err((e.to_string(), url));
+                // }
+                // if let Err(e) = tokio::fs::write(&path2, content).await {
+                //     return Err((e.to_string(), url));
+                // }
+
+                match tokio::fs::File::create_new(&cover_path_clone).await {
+                    Ok(mut f) => {
+                        //must& f.write_all(&content)
+                        if let Err(e) = f.write_all(&content).await {
+                            return Err((e.to_string(), url));
+                        };
+                        // // 下载成功后，记得把这个标准 ID 存入数据库，防止下次重复
+                        // task_pg_connect.execute(
+                        //     "INSERT INTO douyin_download_history (video_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                        //     &[&cover_path_clone.to_string_lossy()]
+                        // ).await.unwrap();
+                    }
+                    // Err(e) => {
+                    //     // return Err((e.to_string(), url));
+                    //     eprintln!("tokio::fs::File::create_new: 文件已存在: {e} : {url}");
+                    //     if is_diff_file {
+                    //         if let Err(e) = tokio::fs::write(&cover_path_clone, &content).await {
+                    //             return Err((e.to_string(), url));
+                    //         }
+                    //     }
+                    // }
+                    Err(e) => match e.kind() {
+                        std::io::ErrorKind::AlreadyExists => {
+                            // 仅仅是文件已存在
+                            eprintln!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件已存在: {e} : {url}...开始比对文件...");
+                            if tokio::fs::read(&cover_path_clone).await.unwrap()==content {
+                                println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
+                            }
+                            else {
+                                // todo
+                                // 这里想将已存在的文件(cover_path_clone)abc.jpg重命名为abc-时间戳.jpg
+                                // 然后从网络新获取的文件内容content保存为(cover_path_clone)abc.jpg
+
+                                // 1. 生成带毫秒时间戳的新文件名 abc-<ts>.jpg（保留原父目录）
+                                let ts = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis();
+                                let stem = cover_path_clone
+                                    .file_stem()
+                                    .map(|s| s.to_string_lossy().into_owned())
+                                    // .unwrap_or_else(|| "abc".to_string());
+                                    .unwrap();
+
+                                let backup_path = cover_path_clone.with_file_name(format!("{}-{}.jpg", stem, ts));
+
+                                // 2. 把旧的 abc.jpg 重命名为 abc-时间戳.jpg
+                                if let Err(e) = tokio::fs::rename(&cover_path_clone, &backup_path).await {
+                                    return Err((e.to_string(), url));
+                                }
+
+                                // 3. 把新下载到的 content 写成新的 abc.jpg
+                                if let Err(e) = tokio::fs::write(&cover_path_clone, &content).await {
+                                    return Err((e.to_string(), url));
+                                }
+                            }
+                        }
+                        // std::io::ErrorKind::NotFound => {
+                        //     // 上级父目录不存在
+                        // }
+                        // std::io::ErrorKind::PermissionDenied => {
+                        //     // 权限不足
+                        // }
+                        _ => {
+                            // 其他 I/O 错误（如磁盘满等）
+                            eprintln!("tokio::fs::File::create_new: 其他错误: {e} : {url}");
+                        }
+                    }
                 }
-                if let Err(e) = tokio::fs::write(&path2, content).await {
-                    return Err((e.to_string(), url));
-                }
-            } else {
+            }
+            else {
                 match tokio::fs::File::create_new(&file_path).await {
                     Ok(mut f) => {
                         //must& f.write_all(&content)
@@ -167,13 +256,56 @@ async fn download_douyin_user_awemes(
                         return Err((e.to_string(), url));
                     }
                 }
+                if douyin_download_task.array_index == 0{
+                    match tokio::fs::File::create_new(&cover_path_clone).await {
+                        Ok(mut f) => {
+                            //must& f.write_all(&content)
+                            if let Err(e) = f.write_all(&content).await {
+                                return Err((e.to_string(), url));
+                            };
+                            // // 下载成功后，记得把这个标准 ID 存入数据库，防止下次重复
+                            // task_pg_connect.execute(
+                            //     "INSERT INTO douyin_download_history (video_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                            //     &[&cover_path_clone.to_string_lossy()]
+                            // ).await.unwrap();
+                        }
+                        // Err(e) => {
+                        //     return Err((e.to_string(), url));
+                        // }
+                        Err(e) => match e.kind() {
+                            std::io::ErrorKind::AlreadyExists => {
+                                // 仅仅是文件已存在
+                                eprintln!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件已存在: {e} : {url}...开始比对文件...");
+                                if tokio::fs::read(&cover_path_clone).await.unwrap()==content {
+                                    println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
+                                }
+                                else {
+                                    println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对不一样: {url}...未处理...");
+                                    // if let Err(e) = tokio::fs::write(&cover_path_clone, &content).await {
+                                    //     return Err((e.to_string(), url));
+                                    // }
+                                }
+                            }
+                            // std::io::ErrorKind::NotFound => {
+                            //     // 上级父目录不存在
+                            // }
+                            // std::io::ErrorKind::PermissionDenied => {
+                            //     // 权限不足
+                            // }
+                            _ => {
+                                // 其他 I/O 错误（如磁盘满等）
+                                eprintln!("tokio::fs::File::create_new: 其他错误: {e} : {url}");
+                            }
+                        }
+                    }
+                }
             }
 
             Ok("OK")
         });
     }
 
-    let mut success_count: u32 = 0;
+    let mut success_count: u16 = 0;
     let mut failed_urls = Vec::new();
 
     while let Some(res) = joinset.join_next().await {
@@ -204,26 +336,25 @@ async fn download_douyin_user_awemes(
                 .await
                 .expect("Failed to delete failed_downloads.html");
         }
-        if !(user_json.is_empty() || nickname.is_empty()) {
-            tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
-                .await
-                .unwrap();
-            tokio::fs::write(
-                user_info_dir_path.join(format!(
-                    "{}@{}.json",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis(),
-                    sanitize_windows_filename_strict(nickname)
-                )),
-                user_json,
-            )
-            .await
-            .unwrap();
-            println!("{nickname} : user.json 完成");
-        } else {
+        if user_json.is_empty() || nickname.is_empty() {
             println!("user_json.is_empty() || nickname.is_empty()");
+        } else {
+            // tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
+            tokio::fs::write(json_path, user_json).await.unwrap();
+            // tokio::fs::write(
+            //     user_info_dir_path.join(format!(
+            //         "{}@{}.json",
+            //         std::time::SystemTime::now()
+            //             .duration_since(std::time::UNIX_EPOCH)
+            //             .unwrap()
+            //             .as_millis(),
+            //         sanitize_windows_filename_strict(nickname)
+            //     )),
+            //     user_json,
+            // )
+            // .await
+            // .unwrap();
+            println!("{nickname} : user.json 完成");
         }
     } else {
         let html_content = format!(
@@ -559,9 +690,13 @@ async fn main() {
         .unwrap();
     let user_ostr = &std::env::var_os("USERPROFILE").unwrap();
     let dy_path = std::path::PathBuf::from(user_ostr).join("d-y");
+    let posters_downloaded = std::path::PathBuf::from(user_ostr).join("d_y");
     tokio::fs::create_dir_all(&dy_path)
         .await
-        .expect("Failed to create directory");
+        .expect("Failed to create directory d-y");
+    tokio::fs::create_dir_all(&posters_downloaded)
+        .await
+        .expect("Failed to create directory d_y");
     sync_one_level_subfolders(&pg_pool, &dy_path).await.unwrap();
     pub async fn sync_one_level_subfolders(
         pool: &deadpool_postgres::Pool,
@@ -570,10 +705,10 @@ async fn main() {
         let pg_connect = pool.get().await?;
         let mut all_filenames = Vec::new();
 
-        println!("正在扫描一级子文件夹: {:#?} ...", root_path);
-
-        // .min_depth(2): 跳过根目录(1级)和子文件夹目录本身(1级)
-        // .max_depth(2): 限制只查到子文件夹内的文件(2级)
+        println!("正在遍历{:#?}-众多文件夹-众多文件...", root_path);
+        // 深度0: 根目录本身
+        // 深度1: 根目录中的文件夹和文件
+        // 深度2: 根目录中的文件夹内的文件夹和文件
         for entry in walkdir::WalkDir::new(root_path)
             .min_depth(2)
             .max_depth(2)
@@ -618,6 +753,7 @@ async fn main() {
         http_client,                                     // 共享的 reqwest::Client
         download_semaphore: Arc::new(Semaphore::new(6)), // 全局6个并发许可
         dy_path,
+        posters_downloaded,
     });
     let app = axum::Router::new()
         .route("/zup", axum::routing::post(handle_post))
@@ -632,8 +768,7 @@ async fn main() {
                     String,
                     String,
                 )>| async move {
-                    let cover_path =
-                        std::path::Path::new("C:/Users/aa/Desktop/download_poster").join(&pinfan);
+                    let cover_path = state.posters_downloaded.join(&pinfan);
                     match (std::fs::exists(&cover_path),re_write) {
                         (Ok(true),false) => (
                             [(
@@ -653,7 +788,28 @@ async fn main() {
                                         request_builder.header("Referer", format!("{}://{}/", parsed_url.scheme(), host));
                                 }
                             }
-                            let resp = request_builder.send().await.unwrap();
+                            // let resp = request_builder.send().await.unwrap();
+                            let resp = match request_builder.send().await {
+                                Ok(resp) => {
+                                    if !resp.status().is_success() {
+                                        eprintln!("{}: {poster_url} -> download_poster请求失败,为避免重复请求,将生成空文件,供下次使用: {cover_path:?}",resp.status());
+                                        tokio::fs::write(&cover_path,bytes::Bytes::new()).await.unwrap();
+                                        return (
+                                            [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
+                                            bytes::Bytes::new(),
+                                        );
+                                    }
+                                    resp
+                                }
+                                Err(e) => {
+                                    eprintln!("{e} -> download_poster请求失败,为避免重复请求,将生成空文件,供下次使用: {cover_path:?}");
+                                    tokio::fs::write(&cover_path,bytes::Bytes::new()).await.unwrap();
+                                    return (
+                                        [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
+                                        bytes::Bytes::new(),
+                                    );
+                                }
+                            };
                             let web_content_type = resp.headers().get(reqwest::header::CONTENT_TYPE).expect(&poster_url)
                                 .to_str()
                                 .unwrap()
@@ -663,7 +819,7 @@ async fn main() {
                                 .unwrap()
                                 .to_string();
                             let bites = resp.bytes().await.unwrap_or_default();
-                            if (web_content_type.to_lowercase().starts_with("image/")||bites.is_empty()) && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/"))&&!(existing&&(&poster_url).starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")&&tokio::fs::read(&cover_path).await.unwrap().len()==web_content_length.parse::<usize>().unwrap()) {
+                            if (web_content_type.to_lowercase().starts_with("image/")||web_content_type.to_lowercase()=="application/octet-stream"||bites.is_empty()) && !(2733 > web_content_length.parse().unwrap() && poster_url.starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/"))&&!(existing&&(&poster_url).starts_with("https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/")&&tokio::fs::read(&cover_path).await.unwrap().len()==web_content_length.parse::<usize>().unwrap()) {
                                 tokio::fs::write(&cover_path,&bites).await.unwrap();
                             }
                             (
