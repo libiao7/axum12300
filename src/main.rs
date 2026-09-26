@@ -198,22 +198,22 @@ async fn download_douyin_user_awemes(
                                 println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
                             }
                             else {
-                                // todo
+                                
                                 // 这里想将已存在的文件(cover_path_clone)abc.jpg重命名为abc-时间戳.jpg
                                 // 然后从网络新获取的文件内容content保存为(cover_path_clone)abc.jpg
 
-                                // 1. 生成带毫秒时间戳的新文件名 abc-<ts>.jpg（保留原父目录）
-                                let ts = std::time::SystemTime::now()
+                                // 1. 生成带毫秒时间戳的新文件名 abc-<ms>.jpg（保留原父目录）
+                                let ms = std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
                                     .as_millis();
                                 let stem = cover_path_clone
                                     .file_stem()
                                     .map(|s| s.to_string_lossy().into_owned())
-                                    // .unwrap_or_else(|| "abc".to_string());
+                                    
                                     .unwrap();
 
-                                let backup_path = cover_path_clone.with_file_name(format!("{}-{}.jpg", stem, ts));
+                                let backup_path = cover_path_clone.with_file_name(format!("{}-{}.jpg", stem, ms));
 
                                 // 2. 把旧的 abc.jpg 重命名为 abc-时间戳.jpg
                                 if let Err(e) = tokio::fs::rename(&cover_path_clone, &backup_path).await {
@@ -234,7 +234,7 @@ async fn download_douyin_user_awemes(
                         // }
                         _ => {
                             // 其他 I/O 错误（如磁盘满等）
-                            eprintln!("tokio::fs::File::create_new: 其他错误: {e} : {url}");
+                            eprintln!("tokio::fs::File::create_new: 错误: {e} : {url}");
                         }
                     }
                 }
@@ -294,7 +294,7 @@ async fn download_douyin_user_awemes(
                             // }
                             _ => {
                                 // 其他 I/O 错误（如磁盘满等）
-                                eprintln!("tokio::fs::File::create_new: 其他错误: {e} : {url}");
+                                eprintln!("tokio::fs::File::create_new: 错误: {e} : {url}");
                             }
                         }
                     }
@@ -340,7 +340,7 @@ async fn download_douyin_user_awemes(
             println!("user_json.is_empty() || nickname.is_empty()");
         } else {
             // tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
-            tokio::fs::write(json_path, user_json).await.unwrap();
+            // tokio::fs::write(json_path, user_json).await.unwrap();
             // tokio::fs::write(
             //     user_info_dir_path.join(format!(
             //         "{}@{}.json",
@@ -354,6 +354,55 @@ async fn download_douyin_user_awemes(
             // )
             // .await
             // .unwrap();
+            match tokio::fs::File::create_new(&json_path).await {
+                Ok(mut f) => {
+                    f.write_all(user_json.as_bytes()).await.unwrap();
+                }
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => {
+                        // 仅仅是文件已存在
+                        eprintln!(
+                            "tokio::fs::File::create_new: {json_path:?}: 文件已存在: {e} : ...开始比对json文件..."
+                        );
+                        if tokio::fs::read(&json_path).await.unwrap() == user_json.as_bytes() {
+                            println!(
+                                "tokio::fs::File::create_new: {json_path:?}: 文件比对一样: ...不重新下载json..."
+                            );
+                        } else {
+                            // 这里想将已存在的文件(json_path)abc.jpg重命名为abc-时间戳.json
+                            // 然后从网络新获取的文件内容content保存为(json_path)abc.json
+
+                            // 1. 生成带毫秒时间戳的新文件名 abc-<ms>.jpg（保留原父目录）
+                            let ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis();
+                            let stem = json_path
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .unwrap();
+
+                            let backup_path = json_path.with_file_name(format!("{}-{}.json", stem, ms));
+
+                            // 2. 把旧的 abc.json 重命名为 abc-时间戳.json
+                            tokio::fs::rename(&json_path, &backup_path).await.unwrap();
+
+                            // 3. 把新下载到的 user_json 写成新的 abc.json
+                            tokio::fs::write(&json_path, &user_json).await.unwrap();
+                        }
+                    }
+                    // std::io::ErrorKind::NotFound => {
+                    //     // 上级父目录不存在
+                    // }
+                    // std::io::ErrorKind::PermissionDenied => {
+                    //     // 权限不足
+                    // }
+                    _ => {
+                        // 其他 I/O 错误（如磁盘满等）
+                        eprintln!("tokio::fs::File::create_new: 错误: {e}");
+                    }
+                },
+            }
             println!("{nickname} : user.json 完成");
         }
     } else {
@@ -830,6 +879,50 @@ async fn main() {
                         (Err(_),_) => (
                             [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
                             bytes::Bytes::new(),
+                        ),
+                    }
+                },
+            ),
+        )
+        .route(
+            "/d-y-cover/{cover_name}",
+            axum::routing::get(|
+                    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+                    axum::extract::Path(cover_name): axum::extract::Path<String>| async move {
+                    let cover_path = state.dy_path.join(&cover_name);
+                    match std::fs::exists(&cover_path) {
+                        Ok(true) => (
+                            [(
+                                axum::http::header::CONTENT_TYPE,
+                                file_format::FileFormat::from_file(&cover_path)
+                                    .unwrap()
+                                    .media_type()
+                                    .to_string(),
+                            )],
+                            bytes::Bytes::from(tokio::fs::read(&cover_path).await.unwrap()),
+                        ),
+                        _ => (
+                            [(axum::http::header::CONTENT_TYPE, "image/jpeg".to_string())],
+                            bytes::Bytes::new(),
+                        ),
+                    }
+                },
+            ),
+        )
+        .route(
+            "/d-y-json/{json_name}",
+            axum::routing::get(|
+                    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+                    axum::extract::Path(json_name): axum::extract::Path<String>| async move {
+                    let cover_path = state.dy_path.join(&json_name);
+                    match std::fs::exists(&cover_path) {
+                        Ok(true) => (
+                            [(axum::http::header::CONTENT_TYPE, "application/json".to_string())],
+                            bytes::Bytes::from(tokio::fs::read(&cover_path).await.unwrap()),
+                        ),
+                        _ => (
+                            [(axum::http::header::CONTENT_TYPE, "text/html; charset=UTF-8".to_string())],
+                            bytes::Bytes::from_static(b"404"),
                         ),
                     }
                 },
