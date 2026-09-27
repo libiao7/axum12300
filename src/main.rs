@@ -369,6 +369,9 @@ async fn download_douyin_user_awemes(
                                 "tokio::fs::File::create_new: {json_path:?}: 文件比对一样: ...不重新下载json..."
                             );
                         } else {
+                            println!(
+                                "tokio::fs::File::create_new: {json_path:?}: 文件比对不一样: ...备份并重新下载json..."
+                            );
                             // 这里想将已存在的文件(json_path)abc.jpg重命名为abc-时间戳.json
                             // 然后从网络新获取的文件内容content保存为(json_path)abc.json
 
@@ -389,6 +392,9 @@ async fn download_douyin_user_awemes(
 
                             // 3. 把新下载到的 user_json 写成新的 abc.json
                             tokio::fs::write(&json_path, &user_json).await.unwrap();
+                            println!(
+                                "tokio::fs::File::create_new: {json_path:?}: 备份并重新下载json 成功"
+                            );
                         }
                     }
                     // std::io::ErrorKind::NotFound => {
