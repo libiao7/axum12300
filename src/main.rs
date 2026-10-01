@@ -127,16 +127,21 @@ async fn download_douyin_user_awemes(
             {
                 return Ok("existed");
             }
-            let response = match task_client
-                .get(&url)
-                .header("Referer", page_url_clone)
-                .send()
-                .await
-            {
+            let mut req_builder = task_client.get(&url);
+
+            if let Ok(parsed) = reqwest::Url::parse(&page_url_clone) {
+                if let Some(host) = parsed.host_str() {
+                    // 严格判断：douyin.com 或其子域名
+                    if host == "douyin.com" || host.ends_with(".douyin.com") {
+                        req_builder = req_builder.header("Referer", &page_url_clone);
+                    }
+                }
+            }
+
+            let response = match req_builder.send().await {
                 Ok(res) => res,
                 Err(e) => return Err((e.to_string(), url)),
             };
-
             if !response.status().is_success() {
                 return Err((
                     format!("!response.status().is_success(): {}", response.status()),
@@ -806,7 +811,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         pg_pool,
         http_client,                                     // 共享的 reqwest::Client
-        download_semaphore: Arc::new(Semaphore::new(6)), // 全局6个并发许可
+        download_semaphore: Arc::new(Semaphore::new(16)), // 全局6个并发许可
         dy_path,
         posters_downloaded,
     });
