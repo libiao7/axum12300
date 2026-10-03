@@ -61,7 +61,6 @@ struct DouYinDownloadReq {
     nickname: String,  //常变化的.昵称  用于aweme_json文件夹命名
     user_json: String, //__pace_f
     page_url: String,  //发起请求的网页
-                       // page_host: String, //发起请求的网页location.hostname
 }
 
 async fn download_douyin_user_awemes(
@@ -72,9 +71,7 @@ async fn download_douyin_user_awemes(
     let nickname = &douyin_download_req.nickname;
     let user_json = &douyin_download_req.user_json;
     let page_url = &douyin_download_req.page_url;
-    // let page_host = &douyin_download_req.page_host;
     let total_count = douyin_download_req.douyin_download_tasks.len();
-    // let host_sec_uid = format!("{page_host}-{sec_uid}");
     let sanitize_sec_uid = sanitize_windows_filename_strict(&sec_uid);
     let dir_path = &state.dy_path.join(sanitize_sec_uid.as_ref());
     if !dir_path.exists() {
@@ -82,19 +79,6 @@ async fn download_douyin_user_awemes(
             .await
             .expect("Failed to create directory");
     }
-
-    // let page_host = reqwest::Url::parse(page_url)
-    //     .unwrap()
-    //     .host_str()
-    //     .unwrap()
-    //     .to_string();
-
-    // let user_info_dir_path = &dir_path.join("user-info");
-    // if !(user_json.is_empty() || nickname.is_empty()) {
-    //     tokio::fs::create_dir_all(user_info_dir_path)
-    //         .await
-    //         .expect("Failed to create directory");
-    // }
     let cover_path = state.dy_path.join(format!("{}.jpg", sanitize_sec_uid));
     let json_path = state.dy_path.join(format!("{}.json", sanitize_sec_uid));
 
@@ -107,10 +91,7 @@ async fn download_douyin_user_awemes(
         let semaphore = state.download_semaphore.clone(); // 使用全局信号量
         let task_client = state.http_client.clone();
         let task_pg_pool = state.pg_pool.clone();
-        // let user_info_dir_path_clone = user_info_dir_path.clone();
         let cover_path_clone = cover_path.clone();
-        // let json_path_clone = json_path.clone();
-        // let nickname_clone = nickname.clone();
         let page_url_clone = page_url.clone();
         joinset.spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
@@ -157,44 +138,12 @@ async fn download_douyin_user_awemes(
                 return Err((format!("content.is_empty()"), url));
             }
             if douyin_download_task.is_cover {
-                // let path1 = user_info_dir_path_clone.join(format!(
-                //     "{}@{}.jpeg",
-                //     std::time::SystemTime::now()
-                //         .duration_since(std::time::UNIX_EPOCH)
-                //         .unwrap()
-                //         .as_millis(),
-                //     sanitize_windows_filename_strict(&nickname_clone)
-                // ));
-                // let path2 = user_info_dir_path_clone.join("avatar.jpeg");
-
-                // if let Err(e) = tokio::fs::write(&path1, &content).await {
-                //     return Err((e.to_string(), url));
-                // }
-                // if let Err(e) = tokio::fs::write(&path2, content).await {
-                //     return Err((e.to_string(), url));
-                // }
-
                 match tokio::fs::File::create_new(&cover_path_clone).await {
                     Ok(mut f) => {
-                        //must& f.write_all(&content)
                         if let Err(e) = f.write_all(&content).await {
                             return Err((e.to_string(), url));
                         };
-                        // // 下载成功后，记得把这个标准 ID 存入数据库，防止下次重复
-                        // task_pg_connect.execute(
-                        //     "INSERT INTO douyin_download_history (video_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                        //     &[&cover_path_clone.to_string_lossy()]
-                        // ).await.unwrap();
                     }
-                    // Err(e) => {
-                    //     // return Err((e.to_string(), url));
-                    //     eprintln!("tokio::fs::File::create_new: 文件已存在: {e} : {url}");
-                    //     if is_diff_file {
-                    //         if let Err(e) = tokio::fs::write(&cover_path_clone, &content).await {
-                    //             return Err((e.to_string(), url));
-                    //         }
-                    //     }
-                    // }
                     Err(e) => match e.kind() {
                         std::io::ErrorKind::AlreadyExists => {
                             // 仅仅是文件已存在
@@ -203,7 +152,6 @@ async fn download_douyin_user_awemes(
                                 println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
                             }
                             else {
-                                
                                 // 这里想将已存在的文件(cover_path_clone)abc.jpg重命名为abc-时间戳.jpg
                                 // 然后从网络新获取的文件内容content保存为(cover_path_clone)abc.jpg
 
@@ -231,14 +179,7 @@ async fn download_douyin_user_awemes(
                                 }
                             }
                         }
-                        // std::io::ErrorKind::NotFound => {
-                        //     // 上级父目录不存在
-                        // }
-                        // std::io::ErrorKind::PermissionDenied => {
-                        //     // 权限不足
-                        // }
                         _ => {
-                            // 其他 I/O 错误（如磁盘满等）
                             eprintln!("tokio::fs::File::create_new: 错误: {e} : {url}");
                         }
                     }
@@ -247,7 +188,6 @@ async fn download_douyin_user_awemes(
             else {
                 match tokio::fs::File::create_new(&file_path).await {
                     Ok(mut f) => {
-                        //must& f.write_all(&content)
                         if let Err(e) = f.write_all(&content).await {
                             return Err((e.to_string(), url));
                         };
@@ -264,19 +204,10 @@ async fn download_douyin_user_awemes(
                 if douyin_download_task.array_index == 0{
                     match tokio::fs::File::create_new(&cover_path_clone).await {
                         Ok(mut f) => {
-                            //must& f.write_all(&content)
                             if let Err(e) = f.write_all(&content).await {
                                 return Err((e.to_string(), url));
                             };
-                            // // 下载成功后，记得把这个标准 ID 存入数据库，防止下次重复
-                            // task_pg_connect.execute(
-                            //     "INSERT INTO douyin_download_history (video_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                            //     &[&cover_path_clone.to_string_lossy()]
-                            // ).await.unwrap();
                         }
-                        // Err(e) => {
-                        //     return Err((e.to_string(), url));
-                        // }
                         Err(e) => match e.kind() {
                             std::io::ErrorKind::AlreadyExists => {
                                 // 仅仅是文件已存在
@@ -286,19 +217,9 @@ async fn download_douyin_user_awemes(
                                 }
                                 else {
                                     println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对不一样: {url}...未处理...");
-                                    // if let Err(e) = tokio::fs::write(&cover_path_clone, &content).await {
-                                    //     return Err((e.to_string(), url));
-                                    // }
                                 }
                             }
-                            // std::io::ErrorKind::NotFound => {
-                            //     // 上级父目录不存在
-                            // }
-                            // std::io::ErrorKind::PermissionDenied => {
-                            //     // 权限不足
-                            // }
                             _ => {
-                                // 其他 I/O 错误（如磁盘满等）
                                 eprintln!("tokio::fs::File::create_new: 错误: {e} : {url}");
                             }
                         }
@@ -344,21 +265,6 @@ async fn download_douyin_user_awemes(
         if user_json.is_empty() || nickname.is_empty() {
             println!("user_json.is_empty() || nickname.is_empty()");
         } else {
-            // tokio::fs::write(user_info_dir_path.join("user.json"), user_json)
-            // tokio::fs::write(json_path, user_json).await.unwrap();
-            // tokio::fs::write(
-            //     user_info_dir_path.join(format!(
-            //         "{}@{}.json",
-            //         std::time::SystemTime::now()
-            //             .duration_since(std::time::UNIX_EPOCH)
-            //             .unwrap()
-            //             .as_millis(),
-            //         sanitize_windows_filename_strict(nickname)
-            //     )),
-            //     user_json,
-            // )
-            // .await
-            // .unwrap();
             match tokio::fs::File::create_new(&json_path).await {
                 Ok(mut f) => {
                     f.write_all(user_json.as_bytes()).await.unwrap();
@@ -402,14 +308,7 @@ async fn download_douyin_user_awemes(
                             );
                         }
                     }
-                    // std::io::ErrorKind::NotFound => {
-                    //     // 上级父目录不存在
-                    // }
-                    // std::io::ErrorKind::PermissionDenied => {
-                    //     // 权限不足
-                    // }
                     _ => {
-                        // 其他 I/O 错误（如磁盘满等）
                         eprintln!("tokio::fs::File::create_new: 错误: {e}");
                     }
                 },
@@ -451,55 +350,6 @@ async fn download_douyin_user_awemes(
     )
 }
 
-// fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
-//     // 1. 替换非法字符
-//     let sanitized: String = filename
-//         .chars()
-//         .map(|c| match c {
-//             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}' => '-',
-//             _ => c,
-//         })
-//         .collect();
-
-//     // 2. 去除末尾的空格和点
-//     let trimmed = sanitized.trim_end_matches(|c| c == ' ' || c == '.');
-
-//     // 3. 如果结果为空（例如输入全是合法但被 trim 掉的字符），提供一个默认值
-//     if trimmed.is_empty() {
-//         return Err("empty now");
-//     }
-//     Ok(trimmed.to_string())
-// }
-
-// fn sanitize_windows_filename_strict(filename: &str) -> Result<String, &str> {
-//     // 预分配：filename.len() 是足额的字节上限
-//     let mut s = String::with_capacity(filename.len());
-
-//     // 1. 替换非法字符并推入
-//     for c in filename.chars() {
-//         match c {
-//             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '\u{0000}'..='\u{001F}' => {
-//                 s.push('-')
-//             }
-//             _ => s.push(c),
-//         }
-//     }
-
-//     // 2. 原地截断末尾（处理 ".MP4." 变成 ".MP4"）
-//     let trimmed_len = s.trim_end_matches(|c| c == ' ' || c == '.').len();
-
-//     // 如果你还想去掉开头的空格，这里可以进一步处理逻辑
-//     // 但针对你问的末尾情况，truncate 是最快的
-//     s.truncate(trimmed_len);
-
-//     if s.is_empty() {
-//         return Err("empty now");
-//     }
-
-//     Ok(s) // 直接返回这个已经 truncate 好的 String，全过程仅 1 次分配
-// }
-
-// sanitize_windows_filename_cow
 fn sanitize_windows_filename_strict<'a>(filename: &'a str) -> Cow<'a, str> {
     // 定义非法字符检测逻辑
     let is_illegal = |c: char| {
@@ -811,7 +661,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         pg_pool,
         http_client,                                     // 共享的 reqwest::Client
-        download_semaphore: Arc::new(Semaphore::new(16)), // 全局6个并发许可
+        download_semaphore: Arc::new(Semaphore::new(6)), // 全局6个并发许可
         dy_path,
         posters_downloaded,
     });
