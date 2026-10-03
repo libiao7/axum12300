@@ -126,17 +126,23 @@ async fn download_douyin_user_awemes(
                     }
                 }
             }
-
-            let response = match req_builder.send().await {
-                Ok(res) => res,
-                Err(e) => return Err((e.to_string(), url)),
+            let mut re_try_times: u8 = 0;
+            let response = loop {
+                re_try_times += 1;
+                let resp =  match req_builder.try_clone().unwrap().send().await {
+                    Ok(res) => res,
+                    Err(e) => return Err((e.to_string(), url)),
+                };
+                if resp.status().is_success() {
+                    break resp;
+                }
+                else if re_try_times > 5 {
+                    return Err((
+                        format!("!resp.status().is_success(): {}", resp.status()),
+                        url,
+                    ));
+                }
             };
-            if !response.status().is_success() {
-                return Err((
-                    format!("!response.status().is_success(): {}", response.status()),
-                    url,
-                ));
-            }
 
             let content = match response.bytes().await {
                 Ok(bytes) => bytes,
