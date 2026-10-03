@@ -81,6 +81,14 @@ async fn download_douyin_user_awemes(
     }
     let cover_path = state.dy_path.join(format!("{}.jpg", sanitize_sec_uid));
     let json_path = state.dy_path.join(format!("{}.json", sanitize_sec_uid));
+    println!(
+        "spawn开始: {}",
+        if nickname.is_empty() {
+            sec_uid
+        } else {
+            nickname
+        }
+    );
 
     let mut joinset = tokio::task::JoinSet::new();
 
@@ -147,9 +155,8 @@ async fn download_douyin_user_awemes(
                     Err(e) => match e.kind() {
                         std::io::ErrorKind::AlreadyExists => {
                             // 仅仅是文件已存在
-                            eprintln!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件已存在: {e} : {url}...开始比对文件...");
                             if tokio::fs::read(&cover_path_clone).await.unwrap()==content {
-                                println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
+                                eprintln!("{cover_path_clone:?} 等于 {url}");
                             }
                             else {
                                 // 这里想将已存在的文件(cover_path_clone)abc.jpg重命名为abc-时间戳.jpg
@@ -211,12 +218,11 @@ async fn download_douyin_user_awemes(
                         Err(e) => match e.kind() {
                             std::io::ErrorKind::AlreadyExists => {
                                 // 仅仅是文件已存在
-                                eprintln!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件已存在: {e} : {url}...开始比对文件...");
                                 if tokio::fs::read(&cover_path_clone).await.unwrap()==content {
-                                    println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对一样: {url}...不重新下载...");
+                                    eprintln!("{cover_path_clone:?} 等于 {url}");
                                 }
                                 else {
-                                    println!("tokio::fs::File::create_new: {cover_path_clone:?}: 文件比对不一样: {url}...未处理...");
+                                    eprintln!("{cover_path_clone:?} 不等于 {url}...未处理...");
                                 }
                             }
                             _ => {
@@ -248,7 +254,7 @@ async fn download_douyin_user_awemes(
         }
     }
     println!(
-        "{} : 作品下载已完成！",
+        "spawn结束: {}",
         if nickname.is_empty() {
             sec_uid
         } else {
@@ -268,21 +274,14 @@ async fn download_douyin_user_awemes(
             match tokio::fs::File::create_new(&json_path).await {
                 Ok(mut f) => {
                     f.write_all(user_json.as_bytes()).await.unwrap();
+                    println!("{nickname} : json已保存");
                 }
                 Err(e) => match e.kind() {
                     std::io::ErrorKind::AlreadyExists => {
                         // 仅仅是文件已存在
-                        eprintln!(
-                            "tokio::fs::File::create_new: {json_path:?}: 文件已存在: {e} : ...开始比对json文件..."
-                        );
                         if tokio::fs::read(&json_path).await.unwrap() == user_json.as_bytes() {
-                            println!(
-                                "tokio::fs::File::create_new: {json_path:?}: 文件比对一样: ...不重新下载json..."
-                            );
+                            eprintln!("{json_path:?}: 文件没变");
                         } else {
-                            println!(
-                                "tokio::fs::File::create_new: {json_path:?}: 文件比对不一样: ...备份并重新下载json..."
-                            );
                             // 这里想将已存在的文件(json_path)abc.jpg重命名为abc-时间戳.json
                             // 然后从网络新获取的文件内容content保存为(json_path)abc.json
 
@@ -303,9 +302,7 @@ async fn download_douyin_user_awemes(
 
                             // 3. 把新下载到的 user_json 写成新的 abc.json
                             tokio::fs::write(&json_path, &user_json).await.unwrap();
-                            println!(
-                                "tokio::fs::File::create_new: {json_path:?}: 备份并重新下载json 成功"
-                            );
+                            eprintln!("{json_path:?}: 已备份并更新");
                         }
                     }
                     _ => {
@@ -313,7 +310,6 @@ async fn download_douyin_user_awemes(
                     }
                 },
             }
-            println!("{nickname} : user.json 完成");
         }
     } else {
         let html_content = format!(
